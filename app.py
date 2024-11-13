@@ -256,6 +256,7 @@ except Exception as e:
 
 # Dash
 app = dash.Dash(__name__)
+server = app.server  # gunicorn은 server 객체를 사용함
 app.scripts.config.serve_locally = True
 app.css.config.serve_locally = True
 
@@ -569,4 +570,5 @@ def update_waiting_time_chart(selected_region, selected_date):
 # 앱 실행
 if __name__ == '__main__':
     # app.run_server(debug=True)
-    app.run_server(debug=True, host='192.168.75.181', port=1643)
+    # app.run_server(debug=True, host='192.168.75.181', port=1643)
+    app.run_server(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8050)))
