@@ -2,3 +2,8 @@ dash
 pandas
 plotly
 gunicorn
+folium
+geopandas
+defaultdict
+dateime
+logging
