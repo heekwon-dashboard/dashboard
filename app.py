@@ -569,6 +569,6 @@ def update_waiting_time_chart(selected_region, selected_date):
 
 # 앱 실행
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    # app.run_server(debug=True)
     # app.run_server(debug=True, host='192.168.75.181', port=1643)
-    # app.run_server(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8050)))
+    app.run_server(debug=True, host="0.0.0.0", port=10000)
