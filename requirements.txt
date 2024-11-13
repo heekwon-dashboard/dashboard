@@ -4,6 +4,3 @@ plotly
 gunicorn
 folium
 geopandas
-defaultdict
-dateime
-logging
