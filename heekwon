@@ -1,6 +1,0 @@
-cd"D:\OneDrive - 스튜디오갈릴레이\00 python\00 대시보드 만들기\"
-git init
-
-git remote add origin https://github.com/heekwon-dashboard/dashboard.git
-git add.
-git commit -m "Initial commit"

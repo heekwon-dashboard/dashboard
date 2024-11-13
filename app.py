@@ -6,15 +6,19 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output
 from collections import defaultdict
-import plotly.express as px
-from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from folium import FeatureGroup
 from collections import Counter
+import plotly.express as px
+from datetime import datetime, timedelta
+import logging
+
+# 로깅 설정
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 날짜 설정
-# day_now = (datetime.today() - timedelta(2)).strftime("%Y-%m-%d")
-day_now = '2024-11-06'
+day_now = (datetime.today() - timedelta(2)).strftime("%Y-%m-%d")
+# day_now = '2024-11-06'
 
 # 데이터 경로 설정
 data_input_dir = 'input\\01 data'
@@ -22,6 +26,11 @@ shp_input_dir = 'input\\02 shp'
 station_file = os.path.join(data_input_dir, 'DRT정류장(통합).csv')
 history_file = os.path.join(data_input_dir, 'DRT운행내역(통합).csv')
 area_file = os.path.join(data_input_dir, '지역별 중심점.csv')
+
+# 로그 추가: 데이터 파일 경로 확인
+logging.info(f"Station file path: {station_file}")
+logging.info(f"History file path: {history_file}")
+logging.info(f"Area file path: {area_file}")
 
 # 정류장 타입 구분
 station_type = defaultdict(str)
@@ -31,10 +40,15 @@ try:
         next(reader)  # 헤더 건너뛰기
         for row in reader:
             station_type[row[5]] = row[12]
+
+    logging.info("Station types successfully loaded.")
+
 except FileNotFoundError:
-    print(f"Error: {station_file} 파일을 찾을 수 없습니다.")
+    logging.error(f"{station_file} 파일을 찾을 수 없습니다.")
+    # print(f"Error: {station_file} 파일을 찾을 수 없습니다.")
 except Exception as e:
-    print(f"Error: {e}")
+    logging.exception(f"Error reading {station_file}: {e}")
+    # print(f"Error: {e}")
 
 # 서비스지역 구분
 service_area = defaultdict(str)
@@ -48,13 +62,17 @@ try:
             service_area[row[0]] = row[1]
             area_center[row[0]] = [row[3], row[2]]
 
+    logging.info("Service area and area centers loaded successfully.")
     # print(service_area)
     # print(area_center)
 
 except FileNotFoundError:
-    print(f"Error: {station_file} 파일을 찾을 수 없습니다.")
+    # print(f"Error: {station_file} 파일을 찾을 수 없습니다.")
+    logging.error(f"{area_file} 파일을 찾을 수 없습니다.")
 except Exception as e:
-    print(f"Error: {e}")
+    # print(f"Error: {e}")
+    logging.exception(f"Error reading {area_file}: {e}")
+
 
 # CSV 파일을 읽어 지역별 집계
 region_data = defaultdict()
@@ -63,8 +81,10 @@ try:
     with open(history_file, newline='', encoding='cp949') as csvfile:
         reader = csv.reader(csvfile)
         next(reader)  # 헤더 건너뛰기
+        logging.info("Reading history data...")
 
         for row in reader:
+            # logging.debug(f"Processing row: {row}")
             # print(row)
 
             # 변수 정의
@@ -76,7 +96,7 @@ try:
             total_num = int(row[7]) + int(row[8]) + int(row[9])
             operation_type = row[10]
             date = row[11]
-            call_type = row[12]
+            call_type = row[12].split("(")[0]
             call_time = int(row[14].split(':')[0]) # 시간 단위
             in_time = int(row[15].split(':')[0]) if row[15] != '' else None     # 시간 단위
             out_time = int(row[16].split(':')[0]) if row[16] != '' else None    # 시간 단위
@@ -103,8 +123,13 @@ try:
                 # shp 파일
                 region_data[service_area[area]][date]["shapefiles"] = {
                     "그린존": os.path.join(shp_input_dir, f"{service_area[area]}_그린존만.shp"),
-                    "레드존": os.path.join(shp_input_dir, f"{service_area[area]}_레드존.shp")
-                }
+                    "레드존": os.path.join(shp_input_dir, f"{service_area[area]}_레드존.shp")}
+
+                # 이용완료 인원 초기화
+                region_data[service_area[area]][date]["total_user"] = 0
+
+                # 일평균 대기시간 초기화
+                region_data[service_area[area]][date]["avg_wait_time"] = []
 
                 # 정류장 현황 초기화
                 region_data[service_area[area]][date]["stations"] = {}
@@ -112,14 +137,14 @@ try:
                 # 통행OD 현황 초기화
                 region_data[service_area[area]][date]["od"] = {}
 
-                # 배차 분류 현황 초기화
-                region_data[service_area[area]][date]["operation_type"] = defaultdict(int) # {"이용완료": 0, "호출취소": 0, "노쇼": 0}
+                # 배차 분류 현황 초기화 {"이용완료": 0, "호출취소": 0, "노쇼": 0}
+                region_data[service_area[area]][date]["operation_type"] = defaultdict(int)
 
                 # 이용자 유형 현황 초기화
                 region_data[service_area[area]][date]["user_type"] = {"성인": 0, "청소년": 0, "어린이": 0}
 
-                # 호출 방법 현황 초기화
-                region_data[service_area[area]][date]["call_type"] = defaultdict(int) # {"앱(실시간)": 0, "전화(실시간)": 0, "호출벨(실시간)": 0}
+                # 호출 방법 현황 초기화 {"앱(실시간)": 0, "전화(실시간)": 0, "호출벨(실시간)": 0}
+                region_data[service_area[area]][date]["call_type"] = defaultdict(int)
 
                 # 시간대별 대기시간 현황 초기화
                 region_data[service_area[area]][date]["time_wait"] = {6: [], 7: [], 8: [], 9: [], 10: [], 11: [],
@@ -162,6 +187,12 @@ try:
 
             # 이용 완료 건에 대한 집계
             if operation_type == '이용완료':
+
+                # 이용완료 인원 초기화
+                region_data[service_area[area]][date]["total_user"] += total_num
+
+                # 일평균 대기시간 초기화
+                region_data[service_area[area]][date]["avg_wait_time"] += [waiting_time]
 
                 # 이용자 유형 집계
                 region_data[service_area[area]][date]["user_type"]["성인"] += adult_num
@@ -214,14 +245,19 @@ try:
 
         # print(day_now)
         # print(region_data)
+        logging.info("Completed reading history data.")
 
 except FileNotFoundError:
-    print(f"Error: {history_file} 파일을 찾을 수 없습니다.")
+    # print(f"Error: {history_file} 파일을 찾을 수 없습니다.")
+    logging.error(f"{history_file} 파일을 찾을 수 없습니다.")
 except Exception as e:
-    print(f"Error: {e}")
+    # print(f"Error: {e}")
+    logging.exception(f"Error reading {history_file}: {e}")
 
 # Dash
 app = dash.Dash(__name__)
+app.scripts.config.serve_locally = True
+app.css.config.serve_locally = True
 
 # Dash 레이아웃 설정
 app.layout = html.Div([
@@ -532,5 +568,5 @@ def update_waiting_time_chart(selected_region, selected_date):
 
 # 앱 실행
 if __name__ == '__main__':
-    app.run_server(debug=True)
-    # app.run_server(debug=True, host='0.0.0.0', port=8050)
+    # app.run_server(debug=True)
+    app.run_server(debug=True, host='192.168.75.181', port=1643)
