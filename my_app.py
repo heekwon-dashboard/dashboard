@@ -17,7 +17,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 날짜 설정
-day_now = (datetime.today() - timedelta(1)).strftime("%Y-%m-%d")
+day_now = (datetime.today() - timedelta(2)).strftime("%Y-%m-%d")
 
 # 데이터 경로 설정
 data_input_dir = os.path.join('input', '01 data')
