@@ -17,11 +17,12 @@ import logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 날짜 설정
-day_now = (datetime.today() - timedelta(2)).strftime("%Y-%m-%d")
+day_now = (datetime.today() - timedelta(1)).strftime("%Y-%m-%d")
+# day_now = '2024-11-06'
 
 # 데이터 경로 설정
-data_input_dir = os.path.join('input', '01 data')
-shp_input_dir = os.path.join('input', '02 shp')
+data_input_dir = 'input\\01 data'
+shp_input_dir = 'input\\02 shp'
 station_file = os.path.join(data_input_dir, 'DRT정류장(통합).csv')
 history_file = os.path.join(data_input_dir, 'DRT운행내역(통합).csv')
 area_file = os.path.join(data_input_dir, '지역별 중심점.csv')
@@ -284,6 +285,26 @@ app.layout = html.Div([
             date=day_now,
             display_format='YYYY-MM-DD',
             style={'width': '30%'}
+        ),
+
+        # 총 이용 인원 표시
+        html.Div(
+            id='total-users-display',
+            children='총 이용 인원: 0명',
+            style={
+                'position': 'absolute',  # 화면 우측에 고정
+                'right': '10px',  # 우측 끝에서 10px 만큼 떨어진 위치
+                'top': '5%',  # 화면 상단에서 50% 위치로 중앙 배치
+                'transform': 'translateY(-50%)',  # 정확히 중앙에 맞추기 위한 보정
+                'font-size': '16px',
+                'padding': '10px',
+                'border': '2px solid #ccc',
+                'border-radius': '8px',
+                'background-color': '#f4f4f4',
+                'box-shadow': '2px 2px 5px rgba(0, 0, 0, 0.1)',
+                'width': '200px',
+                'text-align': 'center'
+            }
         )
     ], style={'display': 'flex', 'align-items': 'center', 'padding': '10px'}),
 
@@ -335,6 +356,19 @@ app.layout = html.Div([
                         'border': '1px solid lightgray'})
     ], style={'display': 'flex', 'width': '100%'})
 ])  # 레이아웃의 끝부분에 괄호를 추가해줌
+
+
+# 콜백 함수: '총 이용인원' 텍스트 업데이트
+@app.callback(
+    Output('total-users-display', 'children'),
+    Input('region-dropdown', 'value'),
+    Input('date-picker', 'date')
+)
+def update_total_users(selected_region, selected_date):
+    region_info = region_data[selected_region][selected_date]
+    total_users = region_info["total_user"]
+
+    return [f'총 이용 인원: ', html.B(f'{total_users}명')]
 
 # 지역에 따른 지도 업데이트
 @app.callback(
