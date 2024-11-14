@@ -18,11 +18,10 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 # 날짜 설정
 day_now = (datetime.today() - timedelta(2)).strftime("%Y-%m-%d")
-# day_now = '2024-11-06'
 
 # 데이터 경로 설정
-data_input_dir = 'input\\01 data'
-shp_input_dir = 'input\\02 shp'
+data_input_dir = os.path.join('input', '01 data')
+shp_input_dir = os.path.join('input', '02 shp')
 station_file = os.path.join(data_input_dir, 'DRT정류장(통합).csv')
 history_file = os.path.join(data_input_dir, 'DRT운행내역(통합).csv')
 area_file = os.path.join(data_input_dir, '지역별 중심점.csv')
