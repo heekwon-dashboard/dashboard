@@ -8,10 +8,9 @@ from dash.dependencies import Input, Output
 from collections import defaultdict
 import plotly.graph_objects as go
 from folium import FeatureGroup
-from collections import Counter
-import plotly.express as px
 from datetime import datetime, timedelta
 import logging
+import functools
 
 # 로깅 설정
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,227 +30,139 @@ logging.info(f"Station file path: {station_file}")
 logging.info(f"History file path: {history_file}")
 logging.info(f"Area file path: {area_file}")
 
-# 정류장 타입 구분
+# 정류장 타입 구분 로드
+def load_csv_data(file_path, encoding='cp949', has_header=True):
+    data = []
+    try:
+        with open(file_path, 'r', encoding=encoding) as f:
+            reader = csv.reader(f)
+            if has_header:
+                next(reader)  # 헤더 건너뛰기
+            data = list(reader)
+        logging.info(f"Data from {file_path} loaded successfully.")
+    except FileNotFoundError:
+        logging.error(f"{file_path} 파일을 찾을 수 없습니다.")
+    except Exception as e:
+        logging.exception(f"Error reading {file_path}: {e}")
+    return data
+
+station_data = load_csv_data(station_file)
+area_data = load_csv_data(area_file)
+history_data = load_csv_data(history_file)
+
+# 데이터 로드
 station_type = defaultdict(str)
-try:
-    with open(station_file, 'r', encoding='cp949') as f:
-        reader = csv.reader(f)
-        next(reader)  # 헤더 건너뛰기
-        for row in reader:
-            station_type[row[5]] = row[12]
+for row in station_data:
+    station_type[row[5]] = row[12]
 
-    logging.info("Station types successfully loaded.")
-
-except FileNotFoundError:
-    logging.error(f"{station_file} 파일을 찾을 수 없습니다.")
-    # print(f"Error: {station_file} 파일을 찾을 수 없습니다.")
-except Exception as e:
-    logging.exception(f"Error reading {station_file}: {e}")
-    # print(f"Error: {e}")
-
-# 서비스지역 구분
 service_area = defaultdict(str)
 area_center = defaultdict(list)
-try:
-    with open(area_file, 'r', encoding='cp949') as f:
-        reader = csv.reader(f)
-        next(reader)  # 헤더 건너뛰기
-        for row in reader:
-            # print(row)
-            service_area[row[0]] = row[1]
-            area_center[row[0]] = [row[3], row[2]]
-
-    logging.info("Service area and area centers loaded successfully.")
-    # print(service_area)
-    # print(area_center)
-
-except FileNotFoundError:
-    # print(f"Error: {station_file} 파일을 찾을 수 없습니다.")
-    logging.error(f"{area_file} 파일을 찾을 수 없습니다.")
-except Exception as e:
-    # print(f"Error: {e}")
-    logging.exception(f"Error reading {area_file}: {e}")
-
+for row in area_data:
+    service_area[row[0]] = row[1]
+    area_center[row[0]] = [row[3], row[2]]
 
 # CSV 파일을 읽어 지역별 집계
-region_data = defaultdict()
+region_data = defaultdict(lambda: defaultdict(lambda: {
+    "map_center": None,
+    "shapefiles": {"그린존": "", "레드존": ""},
+    "total_user": 0,
+    "avg_wait_time": [],
+    "stations": defaultdict(lambda: {"승차": 0, "하차": 0}),
+    "od": defaultdict(int),
+    "operation_type": defaultdict(int),
+    "user_type": {"성인": 0, "청소년": 0, "어린이": 0},
+    "call_type": defaultdict(int),
+    "time_wait": {hour: [] for hour in range(6, 22)},
+    "time_users": {hour: 0 for hour in range(6, 22)},
+    "wait_dist": {**{(f"{5 * i}분 미만" if i == 1 else f"{5 * (i - 1)}~{5 * i}분"): [] for i in range(1, 13)},
+                  "60분 이상": []},   # ** 딕셔너리 언패킹 : 두 개의 딕셔너리를 합쳐 새로운 딕셔너리 생성
+    "time_travel": {hour: [] for hour in range(6, 22)}
+}))
 
-try:
-    with open(history_file, newline='', encoding='cp949') as csvfile:
-        reader = csv.reader(csvfile)
-        next(reader)  # 헤더 건너뛰기
-        logging.info("Reading history data...")
+for row in history_data:
+    area = row[0]
+    total_ride = int(row[6])
+    adult_num = int(row[7])
+    teen_num = int(row[8])
+    children_num = int(row[9])
+    total_num = int(row[7]) + int(row[8]) + int(row[9])
+    date = row[11]
+    operation_type = row[10]
+    call_type = row[12].split("(")[0]
+    in_time = int(row[15].split(':')[0]) if row[15] else None
+    waiting_time = sum(int(x) * [1/60, 1, 60][i] for i, x in enumerate(reversed(row[17].split(':')))) if row[17] else None
+    travel_time = sum(int(x) * [1/60, 1, 60][i] for i, x in enumerate(reversed(row[18].split(':')))) if row[18] else None
+    o_lat = float(row[23])
+    o_lon = float(row[24])
+    d_lat = float(row[25])
+    d_lon = float(row[26])
+    o_station = row[19], o_lat, o_lon
+    d_station = row[20], d_lat, d_lon
+    o_d = row[19] + "-" + row[20]
 
-        for row in reader:
-            # logging.debug(f"Processing row: {row}")
-            # print(row)
+    # 필요 시 초기화
+    if not region_data[service_area[area]][date]["map_center"]:
+        region_data[service_area[area]][date]["map_center"] = area_center[area]
+        region_data[service_area[area]][date]["shapefiles"]["그린존"] = os.path.join(shp_input_dir, f"{service_area[area]}_그린존만.shp")
+        region_data[service_area[area]][date]["shapefiles"]["레드존"] = os.path.join(shp_input_dir, f"{service_area[area]}_레드존.shp")
 
-            # 변수 정의
-            area = row[0]
-            total_ride = int(row[6])
-            adult_num = int(row[7])
-            teen_num = int(row[8])
-            children_num = int(row[9])
-            total_num = int(row[7]) + int(row[8]) + int(row[9])
-            operation_type = row[10]
-            date = row[11]
-            call_type = row[12].split("(")[0]
-            call_time = int(row[14].split(':')[0]) # 시간 단위
-            in_time = int(row[15].split(':')[0]) if row[15] != '' else None     # 시간 단위
-            out_time = int(row[16].split(':')[0]) if row[16] != '' else None    # 시간 단위
-            waiting_time = int(row[17].split(':')[0]) * 60 + int(row[17].split(':')[1]) + int(row[17].split(':')[2]) / 60 if row[17] != '' else None # 분 단위
-            travel_time = int(row[18].split(':')[0]) * 60 + int(row[18].split(':')[1]) + int(row[18].split(':')[2]) / 60 if row[18] != '' else None # 분 단위
-            o_lat = float(row[23])
-            o_lon = float(row[24])
-            d_lat = float(row[25])
-            d_lon = float(row[26])
-            o_station = row[19], o_lat, o_lon
-            d_station = row[20], d_lat, d_lon
-            o_d = row[19] + "-" + row[20]
+    # 배차 분류 집계
+    region_data[service_area[area]][date]["operation_type"][operation_type] += 1
 
-            # 지역 데이터가 이미 존재하지 않는 경우 초기화
-            if service_area[area] not in region_data:
-                region_data[service_area[area]] = {}
+    # 호출 방법 집계
+    region_data[service_area[area]][date]["call_type"][call_type] += 1
 
-            if date not in region_data[service_area[area]]:
-                region_data[service_area[area]][date] = {}
+    # 이용 완료 건에 대한 집계
+    if operation_type == '이용완료':
+        region_data[service_area[area]][date]["total_user"] += total_num
+        region_data[service_area[area]][date]["avg_wait_time"].append(waiting_time)
+        region_data[service_area[area]][date]["user_type"]["성인"] += adult_num
+        region_data[service_area[area]][date]["user_type"]["청소년"] += teen_num
+        region_data[service_area[area]][date]["user_type"]["어린이"] += children_num
+        region_data[service_area[area]][date]["time_wait"][in_time].append(waiting_time)
+        region_data[service_area[area]][date]["time_users"][in_time] += total_num
 
-                # 중심점
-                region_data[service_area[area]][date]["map_center"] = [area_center[area][0], area_center[area][1]]
+        # 정류장 승하차 집계
+        region_data[service_area[area]][date]["stations"][o_station]["승차"] += total_num
+        region_data[service_area[area]][date]["stations"][d_station]["하차"] += total_num
 
-                # shp 파일
-                region_data[service_area[area]][date]["shapefiles"] = {
-                    "그린존": os.path.join(shp_input_dir, f"{service_area[area]}_그린존만.shp"),
-                    "레드존": os.path.join(shp_input_dir, f"{service_area[area]}_레드존.shp")}
+        # 대기시간 분포 집계
+        if waiting_time < 5:
+            region_data[service_area[area]][date]["wait_dist"]["5분 미만"].append(waiting_time)
+        elif waiting_time < 10:
+            region_data[service_area[area]][date]["wait_dist"]["5~10분"].append(waiting_time)
+        elif waiting_time < 15:
+            region_data[service_area[area]][date]["wait_dist"]["10~15분"].append(waiting_time)
+        elif waiting_time < 20:
+            region_data[service_area[area]][date]["wait_dist"]["15~20분"].append(waiting_time)
+        elif waiting_time < 25:
+            region_data[service_area[area]][date]["wait_dist"]["20~25분"].append(waiting_time)
+        elif waiting_time < 30:
+            region_data[service_area[area]][date]["wait_dist"]["25~30분"].append(waiting_time)
+        elif waiting_time < 35:
+            region_data[service_area[area]][date]["wait_dist"]["30~35분"].append(waiting_time)
+        elif waiting_time < 40:
+            region_data[service_area[area]][date]["wait_dist"]["35~40분"].append(waiting_time)
+        elif waiting_time < 45:
+            region_data[service_area[area]][date]["wait_dist"]["40~45분"].append(waiting_time)
+        elif waiting_time < 50:
+            region_data[service_area[area]][date]["wait_dist"]["45~50분"].append(waiting_time)
+        elif waiting_time < 55:
+            region_data[service_area[area]][date]["wait_dist"]["50~55분"].append(waiting_time)
+        elif waiting_time < 60:
+            region_data[service_area[area]][date]["wait_dist"]["55~60분"].append(waiting_time)
+        else:
+            region_data[service_area[area]][date]["wait_dist"]["60분 이상"].append(waiting_time)
 
-                # 이용완료 인원 초기화
-                region_data[service_area[area]][date]["total_user"] = 0
+        # 통행 OD 초기화 및 집계
+        if o_d not in region_data[service_area[area]][date]["od"]:
+            region_data[service_area[area]][date]["od"][o_d] = 0
+        region_data[service_area[area]][date]["od"][o_d] += total_num
 
-                # 일평균 대기시간 초기화
-                region_data[service_area[area]][date]["avg_wait_time"] = []
+        # 시간대별 이동시간 집계
+        region_data[service_area[area]][date]["time_travel"][in_time] += [travel_time]
 
-                # 정류장 현황 초기화
-                region_data[service_area[area]][date]["stations"] = {}
-
-                # 통행OD 현황 초기화
-                region_data[service_area[area]][date]["od"] = {}
-
-                # 배차 분류 현황 초기화 {"이용완료": 0, "호출취소": 0, "노쇼": 0}
-                region_data[service_area[area]][date]["operation_type"] = defaultdict(int)
-
-                # 이용자 유형 현황 초기화
-                region_data[service_area[area]][date]["user_type"] = {"성인": 0, "청소년": 0, "어린이": 0}
-
-                # 호출 방법 현황 초기화 {"앱(실시간)": 0, "전화(실시간)": 0, "호출벨(실시간)": 0}
-                region_data[service_area[area]][date]["call_type"] = defaultdict(int)
-
-                # 시간대별 대기시간 현황 초기화
-                region_data[service_area[area]][date]["time_wait"] = {6: [], 7: [], 8: [], 9: [], 10: [], 11: [],
-                                                                      12: [], 13: [], 14: [], 15: [], 16: [], 17: [],
-                                                                      18: [], 19: [], 20: [], 21: []}
-
-                # 시간대별 이용인원 현황 초기화
-                region_data[service_area[area]][date]["time_users"] = {6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0,
-                                                                       13: 0, 14: 0, 15: 0, 16: 0, 17: 0, 18: 0, 19: 0,
-                                                                       20: 0, 21: 0}
-
-                # 대기시간 분포 초기화
-                region_data[service_area[area]][date]["wait_dist"] = {"5분 미만": [], "5~10분": [], "10~15분": [],
-                                                                      "15~20분": [], "20~25분": [], "25~30분": [],
-                                                                      "30~35분": [], "35~40분": [], "40~45분": [],
-                                                                      "45~50분": [], "50~55분": [], "55~60분": [],
-                                                                      "60분 이상": []}
-
-                # 시간대별 이동시간 현황 초기화
-                region_data[service_area[area]][date]["time_travel"] = {6: [], 7: [], 8: [], 9: [], 10: [], 11: [],
-                                                                        12: [], 13: [], 14: [], 15: [], 16: [], 17: [],
-                                                                        18: [], 19: [], 20: [], 21: []}
-
-            # 정류장 현황 초기화
-            if o_station not in region_data[service_area[area]][date]["stations"]:
-                region_data[service_area[area]][date]["stations"][o_station] = {"승차": 0, "하차": 0}
-
-            if d_station not in region_data[service_area[area]][date]["stations"]:
-                region_data[service_area[area]][date]["stations"][d_station] = {"승차": 0, "하차": 0}
-
-            # 통행 초기화
-            if o_d not in region_data[service_area[area]][date]["od"]:
-                region_data[service_area[area]][date]["od"][o_d] = 0
-
-            # 배차 분류 집계
-            region_data[service_area[area]][date]["operation_type"][operation_type] += 1
-
-            # 호출 방법 집계
-            region_data[service_area[area]][date]["call_type"][call_type] += 1
-
-            # 이용 완료 건에 대한 집계
-            if operation_type == '이용완료':
-
-                # 이용완료 인원 초기화
-                region_data[service_area[area]][date]["total_user"] += total_num
-
-                # 일평균 대기시간 초기화
-                region_data[service_area[area]][date]["avg_wait_time"] += [waiting_time]
-
-                # 이용자 유형 집계
-                region_data[service_area[area]][date]["user_type"]["성인"] += adult_num
-                region_data[service_area[area]][date]["user_type"]["청소년"] += teen_num
-                region_data[service_area[area]][date]["user_type"]["어린이"] += children_num
-
-                # 시간대별 대기시간 집계
-                region_data[service_area[area]][date]["time_wait"][in_time] += [waiting_time]
-
-                # 시간대별 이용인원 집계
-                region_data[service_area[area]][date]["time_users"][in_time] += total_num
-
-                # 정류장 승하차 집계
-                region_data[service_area[area]][date]["stations"][o_station]["승차"] += total_num
-                region_data[service_area[area]][date]["stations"][d_station]["하차"] += total_num
-
-                # 대기시간 분포 집계
-                if waiting_time < 5:
-                    region_data[service_area[area]][date]["wait_dist"]["5분 미만"] += [waiting_time]
-                elif waiting_time < 10:
-                    region_data[service_area[area]][date]["wait_dist"]["5~10분"] += [waiting_time]
-                elif waiting_time < 15:
-                    region_data[service_area[area]][date]["wait_dist"]["10~15분"] += [waiting_time]
-                elif waiting_time < 20:
-                    region_data[service_area[area]][date]["wait_dist"]["15~20분"] += [waiting_time]
-                elif waiting_time < 25:
-                    region_data[service_area[area]][date]["wait_dist"]["20~25분"] += [waiting_time]
-                elif waiting_time < 30:
-                    region_data[service_area[area]][date]["wait_dist"]["25~30분"] += [waiting_time]
-                elif waiting_time < 35:
-                    region_data[service_area[area]][date]["wait_dist"]["30~35분"] += [waiting_time]
-                elif waiting_time < 40:
-                    region_data[service_area[area]][date]["wait_dist"]["35~40분"] += [waiting_time]
-                elif waiting_time < 45:
-                    region_data[service_area[area]][date]["wait_dist"]["40~45분"] += [waiting_time]
-                elif waiting_time < 50:
-                    region_data[service_area[area]][date]["wait_dist"]["45~50분"] += [waiting_time]
-                elif waiting_time < 55:
-                    region_data[service_area[area]][date]["wait_dist"]["50~55분"] += [waiting_time]
-                elif waiting_time < 60:
-                    region_data[service_area[area]][date]["wait_dist"]["55~60분"] += [waiting_time]
-                else:
-                    region_data[service_area[area]][date]["wait_dist"]["60분 이상"] += [waiting_time]
-
-                # 통행 초기화
-                region_data[service_area[area]][date]["od"][o_d] += total_num
-
-                # 시간대별 이동시간 집계
-                region_data[service_area[area]][date]["time_travel"][in_time] += [travel_time]
-
-        # print(day_now)
-        # print(region_data)
-        logging.info("Completed reading history data.")
-
-except FileNotFoundError:
-    # print(f"Error: {history_file} 파일을 찾을 수 없습니다.")
-    logging.error(f"{history_file} 파일을 찾을 수 없습니다.")
-except Exception as e:
-    # print(f"Error: {e}")
-    logging.exception(f"Error reading {history_file}: {e}")
+logging.info("Completed reading history data.")
 
 # Dash
 app = dash.Dash(__name__)
@@ -389,16 +300,24 @@ def update_map(selected_region, selected_date):
             gdf = gpd.read_file(path)
             color = 'red' if name == "레드존" else 'green'
             feature_group = red_zone if color == 'red' else green_zone
-            folium.GeoJson(
-                gdf,
-                name=name,
-                style_function=lambda x, color=color: {
+
+            # functools.partial 사용
+            style_function = functools.partial(
+                lambda x, color: {
                     'fillColor': color,
                     'color': color,
                     'weight': 1,
                     'fillOpacity': 0.1
-                }
+                },
+                color=color
+            )
+
+            folium.GeoJson(
+                gdf,
+                name=name,
+                style_function=style_function
             ).add_to(feature_group)
+
         except FileNotFoundError:
             print(f"Error: {path} 파일을 찾을 수 없습니다.")
         except Exception as e:
