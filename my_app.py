@@ -11,16 +11,18 @@ from folium import FeatureGroup
 from datetime import datetime, timedelta
 import logging
 import functools
+from holidayskr import is_holiday
 
 # 로깅 설정
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 날짜 설정
-day_now = (datetime.today() - timedelta(2)).strftime("%Y-%m-%d")
+day_now = (datetime.today() - timedelta(7)).strftime("%Y-%m-%d")
 
 # 데이터 경로 설정
 data_input_dir = os.path.join('input', '01 data')
 shp_input_dir = os.path.join('input', '02 shp')
+img_input_dir = os.path.join('assets')
 station_file = os.path.join(data_input_dir, 'DRT정류장(통합).csv')
 history_file = os.path.join(data_input_dir, 'DRT운행내역(통합).csv')
 area_file = os.path.join(data_input_dir, '지역별 중심점.csv')
@@ -76,8 +78,10 @@ region_data = defaultdict(lambda: defaultdict(lambda: {
     "time_users": {hour: 0 for hour in range(6, 22)},
     "wait_dist": {**{(f"{5 * i}분 미만" if i == 1 else f"{5 * (i - 1)}~{5 * i}분"): [] for i in range(1, 13)},
                   "60분 이상": []},   # ** 딕셔너리 언패킹 : 두 개의 딕셔너리를 합쳐 새로운 딕셔너리 생성
-    "time_travel": {hour: [] for hour in range(6, 22)}
+    "time_travel": {hour: [] for hour in range(6, 22)},
 }))
+
+holiday_data = {"평일": [], "휴일": []}
 
 for row in history_data:
     area = row[0]
@@ -114,13 +118,14 @@ for row in history_data:
 
     # 이용 완료 건에 대한 집계
     if operation_type == '이용완료':
-        region_data[service_area[area]][date]["total_user"] += total_num
-        region_data[service_area[area]][date]["avg_wait_time"].append(waiting_time)
-        region_data[service_area[area]][date]["user_type"]["성인"] += adult_num
-        region_data[service_area[area]][date]["user_type"]["청소년"] += teen_num
-        region_data[service_area[area]][date]["user_type"]["어린이"] += children_num
-        region_data[service_area[area]][date]["time_wait"][in_time].append(waiting_time)
-        region_data[service_area[area]][date]["time_users"][in_time] += total_num
+        region_data[service_area[area]][date]["total_user"] += total_num    # 이용인원 집계
+        region_data[service_area[area]][date]["avg_wait_time"] += [waiting_time]     # 평균 대기시간 집계
+        region_data[service_area[area]][date]["user_type"]["성인"] += adult_num   # 이용자 유형(성인) 집계
+        region_data[service_area[area]][date]["user_type"]["청소년"] += teen_num   # 이용자 유형(청소년) 집계
+        region_data[service_area[area]][date]["user_type"]["어린이"] += children_num   # 이용자 유형(어린이) 집계
+        region_data[service_area[area]][date]["time_wait"][in_time] += [waiting_time]    # 시간대별 대기시간 집계
+        region_data[service_area[area]][date]["time_users"][in_time] += total_num   # 시간대별 이용인원 집계
+        region_data[service_area[area]][date]["time_travel"][in_time] += [travel_time]  # 시간대별 이동시간 집계
 
         # 정류장 승하차 집계
         region_data[service_area[area]][date]["stations"][o_station]["승차"] += total_num
@@ -128,39 +133,36 @@ for row in history_data:
 
         # 대기시간 분포 집계
         if waiting_time < 5:
-            region_data[service_area[area]][date]["wait_dist"]["5분 미만"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["5분 미만"] += [waiting_time]
         elif waiting_time < 10:
-            region_data[service_area[area]][date]["wait_dist"]["5~10분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["5~10분"] += [waiting_time]
         elif waiting_time < 15:
-            region_data[service_area[area]][date]["wait_dist"]["10~15분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["10~15분"] += [waiting_time]
         elif waiting_time < 20:
-            region_data[service_area[area]][date]["wait_dist"]["15~20분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["15~20분"] += [waiting_time]
         elif waiting_time < 25:
-            region_data[service_area[area]][date]["wait_dist"]["20~25분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["20~25분"] += [waiting_time]
         elif waiting_time < 30:
-            region_data[service_area[area]][date]["wait_dist"]["25~30분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["25~30분"] += [waiting_time]
         elif waiting_time < 35:
-            region_data[service_area[area]][date]["wait_dist"]["30~35분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["30~35분"] += [waiting_time]
         elif waiting_time < 40:
-            region_data[service_area[area]][date]["wait_dist"]["35~40분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["35~40분"] += [waiting_time]
         elif waiting_time < 45:
-            region_data[service_area[area]][date]["wait_dist"]["40~45분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["40~45분"] += [waiting_time]
         elif waiting_time < 50:
-            region_data[service_area[area]][date]["wait_dist"]["45~50분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["45~50분"] += [waiting_time]
         elif waiting_time < 55:
-            region_data[service_area[area]][date]["wait_dist"]["50~55분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["50~55분"] += [waiting_time]
         elif waiting_time < 60:
-            region_data[service_area[area]][date]["wait_dist"]["55~60분"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["55~60분"] += [waiting_time]
         else:
-            region_data[service_area[area]][date]["wait_dist"]["60분 이상"].append(waiting_time)
+            region_data[service_area[area]][date]["wait_dist"]["60분 이상"] += [waiting_time]
 
         # 통행 OD 초기화 및 집계
         if o_d not in region_data[service_area[area]][date]["od"]:
             region_data[service_area[area]][date]["od"][o_d] = 0
         region_data[service_area[area]][date]["od"][o_d] += total_num
-
-        # 시간대별 이동시간 집계
-        region_data[service_area[area]][date]["time_travel"][in_time] += [travel_time]
 
 logging.info("Completed reading history data.")
 
@@ -197,26 +199,52 @@ app.layout = html.Div([
             style={'width': '30%'}
         ),
 
-        # 총 이용 인원 표시
-        html.Div(
-            id='total-users-display',
-            children='총 이용 인원: 0명',
-            style={
-                'position': 'absolute',  # 화면 우측에 고정
-                'right': '10px',  # 우측 끝에서 10px 만큼 떨어진 위치
-                'top': '5%',  # 화면 상단에서 50% 위치로 중앙 배치
-                'transform': 'translateY(-50%)',  # 정확히 중앙에 맞추기 위한 보정
-                'font-size': '16px',
+        # 호출 건수
+        html.Div([
+                # 이미지 삽입
+                html.Img(
+                    src=os.path.join(img_input_dir, 'call_icon.png'),  # 이미지 경로 또는 URL
+                    style={'height': '50px', 'margin-right': '10px'}
+                ),
+                # 총 호출건수 표시
+                html.Div([
+                    html.Span(id='total-calls-display', children='000건',
+                              style={'font-size': '26px', 'font-weight': 'bold'}),
+                    html.Br(),  # 줄바꿈
+                    html.Div("(평일) 000건 / (휴일) 000건", style={'font-size': '13px', 'color': 'gray'})
+                ], style={'display': 'inline-block', 'vertical-align': 'top'})
+            ], style={
+                'display': 'flex',
+                'align-items': 'center',    # 세로 방향 가운데 정렬
+                'border': '1px solid lightgray',
                 'padding': '10px',
-                'border': '2px solid #ccc',
-                'border-radius': '8px',
-                'background-color': '#f4f4f4',
-                'box-shadow': '2px 2px 5px rgba(0, 0, 0, 0.1)',
-                'width': '200px',
-                'text-align': 'center'
-            }
-        )
-    ], style={'display': 'flex', 'align-items': 'center', 'padding': '10px'}),
+                'width': '250px',  # 원하는 크기로 조정
+                'box-sizing': 'border-box'
+            }),
+
+        # 이용 인원
+        html.Div([
+                # 이미지 삽입
+                html.Img(
+                    src=os.path.join(img_input_dir, 'users_icon.png'),  # 이미지 경로 또는 URL
+                    style={'height': '50px', 'margin-right': '10px'}
+                ),
+                # 총 이용인원 표시
+                html.Div([
+                    html.Span(id='total-users-display', children='000명',
+                              style={'font-size': '26px', 'font-weight': 'bold'}),
+                    html.Br(),  # 줄바꿈
+                    html.Div("(평일) 000명 / (휴일) 000명", style={'font-size': '13px', 'color': 'gray'})
+                ], style={'display': 'inline-block', 'vertical-align': 'top'})
+            ], style={
+                'display': 'flex',
+                'align-items': 'center',    # 세로 방향 가운데 정렬
+                'border': '1px solid lightgray',
+                'padding': '10px',
+                'width': '250px',  # 원하는 크기로 조정
+                'box-sizing': 'border-box'
+            })
+    ], style={'display': 'flex', 'align-items': 'center', 'padding': '10px', 'gap': '10px'}),
 
     # 지도와 파이 차트를 포함하는 중간 부분
     html.Div([
@@ -267,18 +295,29 @@ app.layout = html.Div([
     ], style={'display': 'flex', 'width': '100%'})
 ])  # 레이아웃의 끝부분에 괄호를 추가해줌
 
+# 콜백 함수: '총 호출건수' 텍스트 업데이트
+@app.callback(
+    Output('total-calls-display', 'children'),
+    [Input('region-dropdown', 'value'),
+    Input('date-picker', 'date')]
+)
+def update_total_users(selected_region, selected_date):
+    region_info = region_data[selected_region][selected_date]
+    total_calls = sum(region_info["call_type"].values())
+
+    return [html.B(f'{total_calls}건')]
 
 # 콜백 함수: '총 이용인원' 텍스트 업데이트
 @app.callback(
     Output('total-users-display', 'children'),
-    Input('region-dropdown', 'value'),
-    Input('date-picker', 'date')
+    [Input('region-dropdown', 'value'),
+    Input('date-picker', 'date')]
 )
 def update_total_users(selected_region, selected_date):
     region_info = region_data[selected_region][selected_date]
     total_users = region_info["total_user"]
 
-    return [f'총 이용 인원: ', html.B(f'{total_users}명')]
+    return [html.B(f'{total_users}명')]
 
 # 지역에 따른 지도 업데이트
 @app.callback(
@@ -374,7 +413,7 @@ def update_pie_charts(selected_region, selected_date):
         station_name = station[0][0]  # 정류장명 (튜플의 첫 번째 요소)
         station_name = str(station_name).replace('[', '\\[').replace(']', '\\]')  # 대괄호 이스케이프 처리
         station_data = station[1]  # Station data
-        in_text += f"{i}순위. **{station_name}** : {station_data['승차']}명\n"
+        in_text += f"{i}. **{station_name}** : {station_data['승차']}명\n"
         in_text += "\n"
 
     # 하차 기준 상위 5개 정류장
@@ -384,7 +423,7 @@ def update_pie_charts(selected_region, selected_date):
         station_name = station[0][0]  # 정류장명 (튜플의 첫 번째 요소)
         station_name = str(station_name).replace('[', '\\[').replace(']', '\\]')  # 대괄호 이스케이프 처리
         station_data = station[1]  # Station data
-        out_text += f"{i}순위. **{station_name}** : {station_data['하차']}명\n"
+        out_text += f"{i}. **{station_name}** : {station_data['하차']}명\n"
         out_text += "\n"
 
     # 기점-종점 기준 상위 5개 정류장
@@ -394,7 +433,7 @@ def update_pie_charts(selected_region, selected_date):
         o = (od_station[0].split('-')[0]).replace('[', '\\[').replace(']', '\\]')  # 대괄호 이스케이프 처리
         d = (od_station[0].split('-')[1]).replace('[', '\\[').replace(']', '\\]')  # 대괄호 이스케이프 처리
 
-        od_text += f"{i}순위. **{o + '-' + d}** : {od_station[1]}명\n"
+        od_text += f"{i}. **{o + '-' + d}** : {od_station[1]}명\n"
         od_text += "\n"
 
     return in_text, out_text, od_text
@@ -496,7 +535,7 @@ def update_waiting_time_chart(selected_region, selected_date):
     ]
     # 각 값의 비율 계산
     total = sum(sizes)
-    percentages = [round((size / total) * 100, 1) for size in sizes]  # 비율 계산 (백분율)
+    percentages = [round((size / total) * 100, 1) for size in sizes]    # 비율 계산 (백분율)
 
     # 바 차트 생성
     fig = go.Figure(data=[
