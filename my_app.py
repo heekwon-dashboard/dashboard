@@ -11,7 +11,6 @@ from folium import FeatureGroup
 from datetime import datetime, timedelta
 import logging
 import functools
-from holidayskr import is_holiday
 
 # 로깅 설정
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -81,7 +80,7 @@ region_data = defaultdict(lambda: defaultdict(lambda: {
     "time_travel": {hour: [] for hour in range(6, 22)},
 }))
 
-holiday_data = {"평일": [], "휴일": []}
+# holiday_data = {"평일": [], "휴일": []}
 
 for row in history_data:
     area = row[0]
