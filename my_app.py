@@ -11,6 +11,7 @@ from folium import FeatureGroup
 from datetime import datetime, timedelta
 import logging
 import functools
+from holidayskr import is_holiday
 
 # 로깅 설정
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -79,8 +80,6 @@ region_data = defaultdict(lambda: defaultdict(lambda: {
                   "60분 이상": []},   # ** 딕셔너리 언패킹 : 두 개의 딕셔너리를 합쳐 새로운 딕셔너리 생성
     "time_travel": {hour: [] for hour in range(6, 22)},
 }))
-
-# holiday_data = {"평일": [], "휴일": []}
 
 for row in history_data:
     area = row[0]
@@ -163,6 +162,25 @@ for row in history_data:
             region_data[service_area[area]][date]["od"][o_d] = 0
         region_data[service_area[area]][date]["od"][o_d] += total_num
 
+holiday_data = defaultdict(lambda: {
+    "users_list": {"평일": [], "휴일": []},
+    "calls_list": {"평일": [], "휴일": []}
+})
+
+for service_a, services in region_data.items():
+    for service_d, data in services.items():
+        users = data["total_user"]
+        calls = sum(data["call_type"].values())
+
+        if is_holiday(service_d):
+            holiday_data[service_a]["users_list"]["휴일"] += [users]
+            holiday_data[service_a]["calls_list"]["휴일"] += [calls]
+        else:
+            holiday_data[service_a]["users_list"]["평일"] += [users]
+            holiday_data[service_a]["calls_list"]["평일"] += [calls]
+
+# print(holiday_data)
+
 logging.info("Completed reading history data.")
 
 # Dash
@@ -210,7 +228,8 @@ app.layout = html.Div([
                     html.Span(id='total-calls-display', children='000건',
                               style={'font-size': '26px', 'font-weight': 'bold'}),
                     html.Br(),  # 줄바꿈
-                    html.Div("(평일) 000건 / (휴일) 000건", style={'font-size': '13px', 'color': 'gray'})
+                    html.Div(id='avg-calls-display', children='(평일)000건/(휴일)000건',
+                             style={'font-size': '13px', 'color': 'gray'})
                 ], style={'display': 'inline-block', 'vertical-align': 'top'})
             ], style={
                 'display': 'flex',
@@ -233,7 +252,8 @@ app.layout = html.Div([
                     html.Span(id='total-users-display', children='000명',
                               style={'font-size': '26px', 'font-weight': 'bold'}),
                     html.Br(),  # 줄바꿈
-                    html.Div("(평일) 000명 / (휴일) 000명", style={'font-size': '13px', 'color': 'gray'})
+                    html.Div(id='avg-users-display', children='(평일)000명/(휴일)000명',
+                             style={'font-size': '13px', 'color': 'gray'})
                 ], style={'display': 'inline-block', 'vertical-align': 'top'})
             ], style={
                 'display': 'flex',
@@ -305,6 +325,28 @@ def update_total_users(selected_region, selected_date):
     total_calls = sum(region_info["call_type"].values())
 
     return [html.B(f'{total_calls}건')]
+
+# 콜백 함수: '지역별 평균 호출건수, 이용인원' 텍스트 업데이트
+@app.callback(
+    [Output('avg-users-display', 'children'),
+     Output('avg-calls-display', 'children')],
+    Input('region-dropdown', 'value')
+)
+
+def update_area_avg(selected_region):
+    avg_users = holiday_data[selected_region]["users_list"]
+    avg_calls = holiday_data[selected_region]["calls_list"]
+
+    avg_users_weekday = int(round(sum(avg_users["평일"]) / len(avg_users["평일"]), 0))
+    avg_users_holiday = int(round(sum(avg_users["휴일"]) / len(avg_users["휴일"]), 0))
+    avg_calls_weekday = int(round(sum(avg_calls["평일"]) / len(avg_calls["평일"]), 0))
+    avg_calls_holiday = int(round(sum(avg_calls["휴일"]) / len(avg_calls["휴일"]), 0))
+
+    # '(평일) 000건 / (휴일) 000건
+    avg_users_text = f"(평일){avg_users_weekday}명/(주말){avg_users_holiday}명"
+    avg_calls_text = f"(평일){avg_calls_weekday}건/(주말){avg_calls_holiday}건"
+
+    return avg_users_text, avg_calls_text
 
 # 콜백 함수: '총 이용인원' 텍스트 업데이트
 @app.callback(
