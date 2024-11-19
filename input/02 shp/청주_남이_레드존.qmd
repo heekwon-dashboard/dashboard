@@ -1,5 +1,5 @@
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis version="3.28.13-Firenze">
+<qgis version="3.28.8-Firenze">
   <identifier></identifier>
   <parentidentifier></parentidentifier>
   <language></language>

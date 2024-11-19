@@ -8,7 +8,7 @@ from dash.dependencies import Input, Output
 from collections import defaultdict
 import plotly.graph_objects as go
 from folium import FeatureGroup
-from collections import Counter
-import plotly.express as px
 from datetime import datetime, timedelta
 import logging
+import functools
+from holidayskr import is_holiday
