@@ -12,3 +12,4 @@ from datetime import datetime, timedelta
 import logging
 import functools
 import holidayskr
+from holidayskr import is_holiday
