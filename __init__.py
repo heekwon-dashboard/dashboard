@@ -11,4 +11,4 @@ from folium import FeatureGroup
 from datetime import datetime, timedelta
 import logging
 import functools
-from holidayskr import is_holiday
+import holidays
