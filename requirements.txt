@@ -42,7 +42,6 @@ executing==2.0.1
 ExtensionClass==5.1
 fastjsonschema==2.19.1
 ffmpeg==1.4
-find==2020.12.3
 fiona==1.9.5
 Flask==3.0.3
 folium==0.18.0
