@@ -11,7 +11,7 @@ from folium import FeatureGroup
 from datetime import datetime, timedelta
 import logging
 import functools
-from holidayskr import is_holiday
+import holidays
 
 # 로깅 설정
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,6 +31,9 @@ area_file = os.path.join(data_input_dir, '지역별 중심점.csv')
 logging.info(f"Station file path: {station_file}")
 logging.info(f"History file path: {history_file}")
 logging.info(f"Area file path: {area_file}")
+
+# 휴일 정보
+kr_holidays = holidays.KR()
 
 # 정류장 타입 구분 로드
 def load_csv_data(file_path, encoding='cp949', has_header=True):
@@ -172,7 +175,7 @@ for service_a, services in region_data.items():
         users = data["total_user"]
         calls = sum(data["call_type"].values())
 
-        if is_holiday(service_d):
+        if service_d in kr_holidays:
             holiday_data[service_a]["users_list"]["휴일"] += [users]
             holiday_data[service_a]["calls_list"]["휴일"] += [calls]
         else:
