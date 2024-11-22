@@ -17,7 +17,7 @@ import holidays
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 날짜 설정
-day_now = (datetime.today() - timedelta(1)).strftime("%Y-%m-%d")
+day_now = (datetime.today() - timedelta(7)).strftime("%Y-%m-%d")
 
 # 데이터 경로 설정
 data_input_dir = os.path.join('input', '01 data')
@@ -167,22 +167,26 @@ for row in history_data:
 
 holiday_data = defaultdict(lambda: {
     "users_list": {"평일": [], "휴일": []},
-    "calls_list": {"평일": [], "휴일": []}
+    "calls_list": {"평일": [], "휴일": []},
+    "waiting_list": {"평일": [], "휴일": []}
 })
 
 for service_a, services in region_data.items():
     for service_d, data in services.items():
         users = data["total_user"]
         calls = sum(data["call_type"].values())
+        waitings = data["avg_wait_time"]
 
         if service_d in kr_holidays:
             holiday_data[service_a]["users_list"]["휴일"] += [users]
             holiday_data[service_a]["calls_list"]["휴일"] += [calls]
+            holiday_data[service_a]["waiting_list"]["휴일"].extend(waitings)
         else:
             holiday_data[service_a]["users_list"]["평일"] += [users]
             holiday_data[service_a]["calls_list"]["평일"] += [calls]
+            holiday_data[service_a]["waiting_list"]["평일"].extend(waitings)
 
-# print(holiday_data)
+# print(holiday_data["청주_오송"]["waiting_list"]["평일"])
 
 logging.info("Completed reading history data.")
 
@@ -265,6 +269,30 @@ app.layout = html.Div([
                 'padding': '10px',
                 'width': '250px',  # 원하는 크기로 조정
                 'box-sizing': 'border-box'
+            }),
+
+        # 평균 대기시간
+        html.Div([
+                # 이미지 삽입
+                html.Img(
+                    src=os.path.join(img_input_dir, 'waiting_icon.png'),  # 이미지 경로 또는 URL
+                    style={'height': '50px', 'margin-right': '10px'}
+                ),
+                # 평균 대기시간 표시
+                html.Div([
+                    html.Span(id='total-waitings-display', children='000분',
+                              style={'font-size': '26px', 'font-weight': 'bold'}),
+                    html.Br(),  # 줄바꿈
+                    html.Div(id='avg-waitings-display', children='(평일)000분/(휴일)000분',
+                             style={'font-size': '13px', 'color': 'gray'})
+                ], style={'display': 'inline-block', 'vertical-align': 'top'})
+            ], style={
+                'display': 'flex',
+                'align-items': 'center',    # 세로 방향 가운데 정렬
+                'border': '1px solid lightgray',
+                'padding': '10px',
+                'width': '250px',  # 원하는 크기로 조정
+                'box-sizing': 'border-box'
             })
     ], style={'display': 'flex', 'align-items': 'center', 'padding': '10px', 'gap': '10px'}),
 
@@ -329,28 +357,6 @@ def update_total_users(selected_region, selected_date):
 
     return [html.B(f'{total_calls}건')]
 
-# 콜백 함수: '지역별 평균 호출건수, 이용인원' 텍스트 업데이트
-@app.callback(
-    [Output('avg-users-display', 'children'),
-     Output('avg-calls-display', 'children')],
-    Input('region-dropdown', 'value')
-)
-
-def update_area_avg(selected_region):
-    avg_users = holiday_data[selected_region]["users_list"]
-    avg_calls = holiday_data[selected_region]["calls_list"]
-
-    avg_users_weekday = int(round(sum(avg_users["평일"]) / len(avg_users["평일"]), 0))
-    avg_users_holiday = int(round(sum(avg_users["휴일"]) / len(avg_users["휴일"]), 0))
-    avg_calls_weekday = int(round(sum(avg_calls["평일"]) / len(avg_calls["평일"]), 0))
-    avg_calls_holiday = int(round(sum(avg_calls["휴일"]) / len(avg_calls["휴일"]), 0))
-
-    # '(평일) 000건 / (휴일) 000건
-    avg_users_text = f"(평일){avg_users_weekday}명/(주말){avg_users_holiday}명"
-    avg_calls_text = f"(평일){avg_calls_weekday}건/(주말){avg_calls_holiday}건"
-
-    return avg_users_text, avg_calls_text
-
 # 콜백 함수: '총 이용인원' 텍스트 업데이트
 @app.callback(
     Output('total-users-display', 'children'),
@@ -362,6 +368,45 @@ def update_total_users(selected_region, selected_date):
     total_users = region_info["total_user"]
 
     return [html.B(f'{total_users}명')]
+
+# 콜백 함수: '총 대기시간' 텍스트 업데이트
+@app.callback(
+    Output('total-waitings-display', 'children'),
+    [Input('region-dropdown', 'value'),
+    Input('date-picker', 'date')]
+)
+def update_avg_waitings(selected_region, selected_date):
+    region_info = region_data[selected_region][selected_date]
+    avg_waitings = float(round(sum(region_info["avg_wait_time"])/len(region_info["avg_wait_time"]),1))
+
+    return [html.B(f'{avg_waitings}분')]
+
+# 콜백 함수: '지역별 평균 호출건수, 이용인원, 대기시간' 텍스트 업데이트
+@app.callback(
+    [Output('avg-users-display', 'children'),
+     Output('avg-calls-display', 'children'),
+     Output('avg-waitings-display', 'children')],
+    Input('region-dropdown', 'value')
+)
+
+def update_area_avg(selected_region):
+    avg_users = holiday_data[selected_region]["users_list"]
+    avg_calls = holiday_data[selected_region]["calls_list"]
+    avg_waitings = holiday_data[selected_region]["waiting_list"]
+
+    avg_users_weekday = int(round(sum(avg_users["평일"]) / len(avg_users["평일"]), 0))
+    avg_users_holiday = int(round(sum(avg_users["휴일"]) / len(avg_users["휴일"]), 0))
+    avg_calls_weekday = int(round(sum(avg_calls["평일"]) / len(avg_calls["평일"]), 0))
+    avg_calls_holiday = int(round(sum(avg_calls["휴일"]) / len(avg_calls["휴일"]), 0))
+    avg_waitings_weekday = float(round(sum(avg_waitings["평일"]) / len(avg_waitings["평일"]), 0))
+    avg_waitings_holiday = float(round(sum(avg_waitings["휴일"]) / len(avg_waitings["휴일"]), 0))
+
+    # '(평일) 000건 / (휴일) 000건
+    avg_users_text = f"(평일){avg_users_weekday}명/(주말){avg_users_holiday}명"
+    avg_calls_text = f"(평일){avg_calls_weekday}건/(주말){avg_calls_holiday}건"
+    avg_waitings_text = f"(평일){avg_waitings_weekday}분/(주말){avg_waitings_holiday}분"
+
+    return avg_users_text, avg_calls_text, avg_waitings_text
 
 # 지역에 따른 지도 업데이트
 @app.callback(
